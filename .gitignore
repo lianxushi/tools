@@ -1,0 +1,23 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/
+
+# Dependencies and local environments
+node_modules/
+.npm/
+vendor/
+.env
+.env.*
+
+# Logs, caches, and test output
+*.log
+npm-debug.log*
+.cache/
+tmp/
+test-results/
+playwright-report/

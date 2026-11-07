@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>图片框选坐标工具</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2332;
+    --border: #2d3a4f;
+    --text: #e7ecf3;
+    --muted: #8b9bb4;
+    --accent: #3b82f6;
+    --accent2: #22c55e;
+    --danger: #ef4444;
+    --box: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+  }
+  header h1 {
+    font-size: 16px;
+    margin: 0 8px 0 0;
+    font-weight: 600;
+  }
+  .btn {
+    border: 1px solid var(--border);
+    background: #243044;
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .btn:hover { background: #2c3b52; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ok { background: var(--accent2); border-color: var(--accent2); color: #052e16; font-weight: 600; }
+  .btn.danger { background: transparent; border-color: var(--danger); color: #fca5a5; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .zoom-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #121a26;
+  }
+  .zoom-group .btn { padding: 5px 10px; }
+  #zoomLabel {
+    min-width: 52px;
+    text-align: center;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: #93c5fd;
+  }
+  .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  main {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) 300px;
+    grid-template-rows: minmax(0, 1fr);
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  aside, .side {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow: auto;
+    padding: 10px;
+    min-width: 0;
+    min-height: 0;
+  }
+  .side { border-right: none; border-left: 1px solid var(--border); }
+  .file-item, .box-item {
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-bottom: 4px;
+    border: 1px solid transparent;
+  }
+  .file-item:hover, .box-item:hover { background: #243044; }
+  .file-item.active { background: #1e3a5f; border-color: var(--accent); }
+  .file-item .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-item .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .stage-wrap {
+    overflow: auto;
+    overscroll-behavior: contain;
+    background: #0a0e13;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    cursor: default;
+  }
+  .stage-wrap.spacepan,
+  .stage-wrap.spacepan #overlay { cursor: grab; }
+  .stage-wrap.panning,
+  .stage-wrap.panning #overlay { cursor: grabbing; }
+  #stage {
+    position: relative;
+    line-height: 0;
+    user-select: none;
+    margin: 24px;
+    display: inline-block;
+    max-width: none;
+    max-height: none;
+    box-shadow: 0 0 0 1px #243044;
+  }
+  #stage img {
+    display: block;
+    max-width: none;
+    max-height: none;
+    image-rendering: auto;
+  }
+  #stage.pixelated img { image-rendering: pixelated; }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    cursor: crosshair;
+  }
+  .box {
+    position: absolute;
+    border: 2px solid var(--box);
+    background: rgba(245, 158, 11, 0.18);
+    pointer-events: none;
+  }
+  .box.selected { border-color: #38bdf8; background: rgba(56, 189, 248, 0.2); }
+  .box .label {
+    position: absolute;
+    top: -18px;
+    left: 0;
+    font-size: 11px;
+    background: var(--box);
+    color: #111;
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .box.selected .label { background: #38bdf8; }
+  #draft {
+    position: absolute;
+    border: 2px dashed #38bdf8;
+    background: rgba(56, 189, 248, 0.15);
+    pointer-events: none;
+    display: none;
+  }
+  .empty {
+    color: var(--muted);
+    text-align: center;
+    padding: 40px 16px;
+    font-size: 14px;
+  }
+  .box-item.selected { background: #1e3a5f; border-color: #38bdf8; }
+  .box-item code {
+    font-size: 11px;
+    color: #93c5fd;
+    display: block;
+    margin-top: 4px;
+    word-break: break-all;
+  }
+  .section-title {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 4px 0 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  select {
+    background: #243044;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+  #dropzone {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(59, 130, 246, 0.15);
+    border: 3px dashed var(--accent);
+    z-index: 20;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    pointer-events: none;
+  }
+  #dropzone.show { display: flex; }
+  #placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>图片框选坐标</h1>
+  <label class="btn primary">
+    打开图片
+    <input id="fileInput" type="file" accept="image/jpeg,image/jpg,image/png,image/webp" multiple hidden />
+  </label>
+  <div class="zoom-group" title="Ctrl + 滚轮 也可缩放">
+    <button class="btn" id="btnZoomOut" type="button">−</button>
+    <span id="zoomLabel">100%</span>
+    <button class="btn" id="btnZoomIn" type="button">+</button>
+    <button class="btn" id="btnZoomFit" type="button">适应</button>
+    <button class="btn" id="btnZoom100" type="button">1:1</button>
+  </div>
+  <button class="btn" id="btnUndo" title="删除当前选中框；没有选中时删除当前图最后一个框。不能恢复已删除的框">撤销框</button>
+  <button class="btn danger" id="btnClear">清空当前图框</button>
+  <button class="btn ok" id="btnExport">导出 JSON</button>
+  <button class="btn" id="btnExportCsv">导出 CSV</button>
+  <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+    坐标系
+    <select id="coordMode">
+      <option value="xyxy" selected>xyxy (x1,y1,x2,y2)</option>
+      <option value="xywh">xywh (x,y,w,h)</option>
+    </select>
+  </label>
+  <span class="hint">Ctrl+滚轮缩放 · 空格/中键/Alt 平移 · 拖拽画框 · Delete 删框 · ← → 切图</span>
+</header>
+<main>
+  <aside>
+    <div class="section-title">图片列表</div>
+    <div id="fileList"><div class="empty">打开或拖入图片</div></div>
+  </aside>
+  <div class="stage-wrap" id="stageWrap">
+    <div id="dropzone">松开以添加图片</div>
+    <div id="stage" style="display:none">
+      <img id="img" alt="" draggable="false" />
+      <div id="overlay"></div>
+      <div id="draft"></div>
+    </div>
+    <div id="placeholder" class="empty">选择或拖入图片后，在图上拖动鼠标画框</div>
+  </div>
+  <div class="side">
+    <div class="section-title">当前图的框</div>
+    <div id="boxList"><div class="empty">暂无框</div></div>
+    <div class="row">
+      <button class="btn danger" id="btnDelSel" disabled>删除选中框</button>
+    </div>
+    <div class="section-title" style="margin-top:16px">预览（原图像素）</div>
+    <pre id="preview" style="font-size:11px;color:#93c5fd;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
+  </div>
+</main>
+<script>
+(() => {
+  /** @type {{id:string, name:string, url:string, naturalW:number, naturalH:number, boxes:{id:string,x1:number,y1:number,x2:number,y2:number}[], sizePromise:Promise<{w:number,h:number}>|null}[]} */
+  const files = [];
+  let current = -1;
+  let selectedBoxId = null;
+  let drawing = false;
+  let startDisp = null;
+  /** @type {null | "draw" | "pan"} */
+  let gesture = null;
+  /** absolute scale request: display_px / natural_px */
+  let zoom = 1;
+  let spaceDown = false;
+  let altDown = false;
+  let panning = false;
+  let panStart = null;
+  let showToken = 0;
+
+  const ZOOM_MIN = 0.05;
+  const ZOOM_MAX = 32;
+  const ZOOM_STEPS = [
+    0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.67, 0.75, 1,
+    1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const fileInput = $("fileInput");
+  const fileList = $("fileList");
+  const boxList = $("boxList");
+  const stage = $("stage");
+  const img = $("img");
+  const overlay = $("overlay");
+  const draft = $("draft");
+  const placeholder = $("placeholder");
+  const preview = $("preview");
+  const coordMode = $("coordMode");
+  const wrap = $("stageWrap");
+  const zoomLabel = $("zoomLabel");
+
+  function uid() { return Math.random().toString(36).slice(2, 10); }
+  function cur() { return current >= 0 ? files[current] : null; }
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  function metrics() {
+    const f = cur();
+    const z = zoom || 1;
+    if (f && f.naturalW > 0 && f.naturalH > 0) {
+      const rect = overlay.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        return { sx: rect.width / f.naturalW, sy: rect.height / f.naturalH };
+      }
+    }
+    return { sx: z, sy: z };
+  }
+
+  function dispToNat(dx, dy) {
+    const { sx, sy } = metrics();
+    return { x: dx / sx, y: dy / sy };
+  }
+
+  function natToDisp(x, y) {
+    const { sx, sy } = metrics();
+    return { x: x * sx, y: y * sy };
+  }
+
+  function normalizeBox(x1, y1, x2, y2, W, H) {
+    const a = clamp(Math.min(x1, x2), 0, W);
+    const b = clamp(Math.min(y1, y2), 0, H);
+    const c = clamp(Math.max(x1, x2), 0, W);
+    const d = clamp(Math.max(y1, y2), 0, H);
+    return {
+      x1: Math.round(a),
+      y1: Math.round(b),
+      x2: Math.round(c),
+      y2: Math.round(d),
+    };
+  }
+
+  function formatBox(b) {
+    if (coordMode.value === "xywh") {
+      return { x: b.x1, y: b.y1, w: b.x2 - b.x1, h: b.y2 - b.y1 };
+    }
+    return { x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2 };
+  }
+
+  function fitZoom() {
+    const f = cur();
+    if (!f || !f.naturalW) return 1;
+    const pad = 48;
+    const aw = Math.max(100, wrap.clientWidth - pad);
+    const ah = Math.max(100, wrap.clientHeight - pad);
+    return Math.min(aw / f.naturalW, ah / f.naturalH, 1);
+  }
+
+  function shiftScrollToAnchor(clientX, clientY, relX, relY) {
+    for (let i = 0; i < 2; i++) {
+      const r = stage.getBoundingClientRect();
+      wrap.scrollLeft += r.left - (clientX - relX * r.width);
+      wrap.scrollTop += r.top - (clientY - relY * r.height);
+    }
+  }
+
+  function applyZoom(anchor) {
+    const f = cur();
+    if (!f || !f.naturalW) return;
+    const w = f.naturalW * zoom;
+    const h = f.naturalH * zoom;
+    img.style.width = w + "px";
+    img.style.height = h + "px";
+    stage.classList.toggle("pixelated", zoom >= 3);
+    zoomLabel.textContent = Math.round(zoom * 100) + "%";
+    renderBoxes();
+    if (anchor) shiftScrollToAnchor(anchor.clientX, anchor.clientY, anchor.relX, anchor.relY);
+  }
+
+  function captureAnchor(clientX, clientY) {
+    const stageRect = stage.getBoundingClientRect();
+    return {
+      clientX,
+      clientY,
+      relX: (clientX - stageRect.left) / Math.max(1, stageRect.width),
+      relY: (clientY - stageRect.top) / Math.max(1, stageRect.height),
+    };
+  }
+
+  function setZoom(next, opts = {}) {
+    const { aroundClientX, aroundClientY, preserveCenter } = opts;
+    next = clamp(next, ZOOM_MIN, ZOOM_MAX);
+    if (!cur() || !cur().naturalW) return;
+    if (Math.abs(next - zoom) < 1e-9) return;
+
+    let anchor = null;
+    if (stage.style.display !== "none") {
+      if (aroundClientX != null && aroundClientY != null) {
+        anchor = captureAnchor(aroundClientX, aroundClientY);
+      } else if (preserveCenter) {
+        const rect = wrap.getBoundingClientRect();
+        anchor = captureAnchor(rect.left + wrap.clientWidth / 2, rect.top + wrap.clientHeight / 2);
+      }
+    }
+    zoom = next;
+    applyZoom(anchor);
+  }
+
+  function nearestStep(z, dir) {
+    if (dir > 0) {
+      for (const s of ZOOM_STEPS) if (s > z + 1e-6) return s;
+      return ZOOM_MAX;
+    }
+    for (let i = ZOOM_STEPS.length - 1; i >= 0; i--) {
+      if (ZOOM_STEPS[i] < z - 1e-6) return ZOOM_STEPS[i];
+    }
+    return ZOOM_MIN;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  function sizeLabel(f) {
+    if (f.naturalW > 0 && f.naturalH > 0) return f.naturalW + "×" + f.naturalH;
+    return "读取尺寸…";
+  }
+
+  function renderFileList() {
+    if (!files.length) {
+      fileList.innerHTML = '<div class="empty">打开或拖入图片</div>';
+      return;
+    }
+    fileList.innerHTML = files.map((f, i) => `
+      <div class="file-item ${i === current ? "active" : ""}" data-i="${i}">
+        <div class="name">${escapeHtml(f.name)}</div>
+        <div class="meta">${sizeLabel(f)} · ${f.boxes.length} 个框</div>
+      </div>`).join("");
+    fileList.querySelectorAll(".file-item").forEach((el) => {
+      el.onclick = () => selectFile(+el.dataset.i);
+    });
+  }
+
+  function renderBoxes() {
+    const f = cur();
+    overlay.querySelectorAll(".box").forEach((n) => n.remove());
+    if (!f) {
+      boxList.innerHTML = '<div class="empty">暂无框</div>';
+      preview.textContent = "";
+      $("btnDelSel").disabled = true;
+      return;
+    }
+    f.boxes.forEach((b, idx) => {
+      const p1 = natToDisp(b.x1, b.y1);
+      const p2 = natToDisp(b.x2, b.y2);
+      const el = document.createElement("div");
+      el.className = "box" + (b.id === selectedBoxId ? " selected" : "");
+      el.style.left = p1.x + "px";
+      el.style.top = p1.y + "px";
+      el.style.width = Math.max(0, p2.x - p1.x) + "px";
+      el.style.height = Math.max(0, p2.y - p1.y) + "px";
+      const lab = document.createElement("div");
+      lab.className = "label";
+      lab.textContent = "#" + (idx + 1);
+      el.appendChild(lab);
+      overlay.appendChild(el);
+    });
+
+    if (!f.boxes.length) {
+      boxList.innerHTML = '<div class="empty">暂无框 · 在图上拖动画框</div>';
+    } else {
+      boxList.innerHTML = f.boxes.map((b, idx) => {
+        const fmt = formatBox(b);
+        const text = Object.entries(fmt).map(([k, v]) => `${k}:${v}`).join(", ");
+        return `<div class="box-item ${b.id === selectedBoxId ? "selected" : ""}" data-id="${b.id}">
+          #${idx + 1}
+          <code>${text}</code>
+        </div>`;
+      }).join("");
+      boxList.querySelectorAll(".box-item").forEach((el) => {
+        el.onclick = () => {
+          selectedBoxId = el.dataset.id;
+          renderBoxes();
+        };
+      });
+    }
+    $("btnDelSel").disabled = !selectedBoxId;
+    preview.textContent = JSON.stringify({
+      image: f.name,
+      width: f.naturalW,
+      height: f.naturalH,
+      boxes: f.boxes.map(formatBox),
+    }, null, 2);
+  }
+
+  function selectFile(i) {
+    if (i < 0 || i >= files.length) return;
+    current = i;
+    selectedBoxId = null;
+    cancelDraw();
+    endPan();
+    const f = files[i];
+    const token = ++showToken;
+    placeholder.style.display = "none";
+    stage.style.display = "inline-block";
+    const afterLoad = () => {
+      if (token !== showToken) return;
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        f.naturalW = img.naturalWidth;
+        f.naturalH = img.naturalHeight;
+      }
+      if (cur() !== f) {
+        renderFileList();
+        return;
+      }
+      zoom = fitZoom();
+      applyZoom(null);
+      wrap.scrollLeft = 0;
+      wrap.scrollTop = 0;
+      renderFileList();
+      renderBoxes();
+    };
+    if (img.src === f.url && img.complete && img.naturalWidth) {
+      afterLoad();
+    } else {
+      img.onload = () => afterLoad();
+      img.onerror = () => {};
+      img.src = f.url;
+    }
+    renderFileList();
+  }
+
+  function loadSize(url) {
+    return new Promise((resolve) => {
+      const im = new Image();
+      im.onload = () => resolve({ w: im.naturalWidth || 0, h: im.naturalHeight || 0 });
+      im.onerror = () => resolve({ w: 0, h: 0 });
+      im.src = url;
+    });
+  }
+
+  function rememberSize(item, sz) {
+    if (!sz || !(sz.w > 0) || !(sz.h > 0)) return;
+    item.naturalW = sz.w;
+    item.naturalH = sz.h;
+  }
+
+  function addFiles(fileListLike) {
+    const arr = [...fileListLike].filter((file) =>
+      /^image\/(jpeg|jpg|png|webp)$/i.test(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name)
+    );
+    if (!arr.length) return;
+    const first = files.length;
+    arr.forEach((file) => {
+      const url = URL.createObjectURL(file);
+      const item = {
+        id: uid(),
+        name: file.name,
+        url,
+        naturalW: 0,
+        naturalH: 0,
+        boxes: [],
+        sizePromise: null,
+      };
+      item.sizePromise = loadSize(url).then((sz) => {
+        rememberSize(item, sz);
+        renderFileList();
+        if (cur() === item) renderBoxes();
+        return sz;
+      });
+      files.push(item);
+    });
+    selectFile(first);
+  }
+
+  fileInput.onchange = () => {
+    addFiles(fileInput.files);
+    fileInput.value = "";
+  };
+
+  const dropzone = $("dropzone");
+  ["dragenter", "dragover"].forEach((ev) => {
+    window.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("show");
+    });
+  });
+  ["dragleave", "drop"].forEach((ev) => {
+    window.addEventListener(ev, (e) => {
+      e.preventDefault();
+      if (ev === "drop") {
+        dropzone.classList.remove("show");
+        if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+      } else {
+        dropzone.classList.remove("show");
+      }
+    });
+  });
+  window.addEventListener("dragend", () => dropzone.classList.remove("show"));
+
+  function localPos(e) {
+    const r = overlay.getBoundingClientRect();
+    return {
+      x: clamp(e.clientX - r.left, 0, r.width),
+      y: clamp(e.clientY - r.top, 0, r.height),
+    };
+  }
+
+  function wantsPanDown(e) {
+    return spaceDown || altDown || !!e.altKey || e.button === 1;
+  }
+
+  function panHeld(e) {
+    return spaceDown || altDown || !!(e && e.altKey) || !!(e && (e.buttons & 4));
+  }
+
+  function cancelDraw() {
+    drawing = false;
+    startDisp = null;
+    draft.style.display = "none";
+    if (gesture === "draw") gesture = null;
+  }
+
+  function endPan() {
+    panning = false;
+    panStart = null;
+    if (gesture === "pan") gesture = null;
+    wrap.classList.remove("panning");
+  }
+
+  function startPan(e) {
+    cancelDraw();
+    gesture = "pan";
+    panning = true;
+    panStart = { x: e.clientX, y: e.clientY, sl: wrap.scrollLeft, st: wrap.scrollTop };
+    wrap.classList.add("panning");
+  }
+
+  function beginDraw(e) {
+    gesture = "draw";
+    drawing = true;
+    startDisp = localPos(e);
+    draft.style.display = "block";
+    draft.style.left = startDisp.x + "px";
+    draft.style.top = startDisp.y + "px";
+    draft.style.width = "0px";
+    draft.style.height = "0px";
+    selectedBoxId = null;
+  }
+
+  wrap.addEventListener("mousedown", (e) => {
+    if (!cur() || !wantsPanDown(e)) return;
+    startPan(e);
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
+  wrap.addEventListener("auxclick", (e) => {
+    if (e.button === 1) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
+  overlay.addEventListener("mousedown", (e) => {
+    if (!cur()) return;
+    if (gesture === "pan" || wantsPanDown(e)) {
+      if (gesture !== "pan") startPan(e);
+      e.preventDefault();
+      return;
+    }
+    if (e.button !== 0) return;
+    beginDraw(e);
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (gesture === "draw" && panHeld(e)) startPan(e);
+    if (gesture === "pan" && panStart) {
+      wrap.scrollLeft = panStart.sl - (e.clientX - panStart.x);
+      wrap.scrollTop = panStart.st - (e.clientY - panStart.y);
+      e.preventDefault();
+      return;
+    }
+    if (!drawing || !startDisp) return;
+    const p = localPos(e);
+    draft.style.left = Math.min(startDisp.x, p.x) + "px";
+    draft.style.top = Math.min(startDisp.y, p.y) + "px";
+    draft.style.width = Math.abs(p.x - startDisp.x) + "px";
+    draft.style.height = Math.abs(p.y - startDisp.y) + "px";
+  });
+
+  window.addEventListener("mouseup", (e) => {
+    if (gesture === "pan" || panning || e.button === 1) {
+      endPan();
+      cancelDraw();
+      return;
+    }
+    if (gesture !== "draw" || !drawing || !startDisp || e.button !== 0) {
+      cancelDraw();
+      endPan();
+      return;
+    }
+    gesture = null;
+    drawing = false;
+    draft.style.display = "none";
+    const p = localPos(e);
+    const f = cur();
+    const start = startDisp;
+    startDisp = null;
+    if (!f || !(f.naturalW > 0) || !(f.naturalH > 0)) return;
+    const a = dispToNat(start.x, start.y);
+    const b = dispToNat(p.x, p.y);
+    const box = normalizeBox(a.x, a.y, b.x, b.y, f.naturalW, f.naturalH);
+    if (box.x2 - box.x1 < 2 || box.y2 - box.y1 < 2) {
+      renderBoxes();
+      return;
+    }
+    const id = uid();
+    f.boxes.push({ id, ...box });
+    selectedBoxId = id;
+    renderFileList();
+    renderBoxes();
+  });
+
+  wrap.addEventListener("wheel", (e) => {
+    if (!cur()) return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      setZoom(zoom * factor, { aroundClientX: e.clientX, aroundClientY: e.clientY });
+    }
+  }, { passive: false });
+
+  $("btnZoomIn").onclick = () => setZoom(nearestStep(zoom, 1), { preserveCenter: true });
+  $("btnZoomOut").onclick = () => setZoom(nearestStep(zoom, -1), { preserveCenter: true });
+  $("btnZoomFit").onclick = () => {
+    zoom = fitZoom();
+    applyZoom(null);
+    wrap.scrollLeft = 0;
+    wrap.scrollTop = 0;
+  };
+  $("btnZoom100").onclick = () => setZoom(1, { preserveCenter: true });
+
+  function deleteSelected() {
+    const f = cur();
+    if (!f) return;
+    if (selectedBoxId) {
+      f.boxes = f.boxes.filter((b) => b.id !== selectedBoxId);
+      selectedBoxId = null;
+    } else if (f.boxes.length) {
+      f.boxes.pop();
+    }
+    renderFileList();
+    renderBoxes();
+  }
+
+  $("btnUndo").onclick = deleteSelected;
+  $("btnDelSel").onclick = deleteSelected;
+  $("btnClear").onclick = () => {
+    const f = cur();
+    if (!f || !f.boxes.length) return;
+    if (!confirm("清空当前图片的所有框？")) return;
+    f.boxes = [];
+    selectedBoxId = null;
+    renderFileList();
+    renderBoxes();
+  };
+
+  coordMode.onchange = () => renderBoxes();
+
+  window.addEventListener("keydown", (e) => {
+    if ((e.code === "Space" || e.key === " ") && !e.repeat) {
+      const typing = e.target.matches && e.target.matches("input, textarea, select");
+      if (!typing) {
+        spaceDown = true;
+        wrap.classList.add("spacepan");
+        e.preventDefault();
+        return;
+      }
+    }
+    if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") altDown = true;
+    if (e.target.matches && e.target.matches("input, textarea, select")) return;
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      deleteSelected();
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      selectFile(current - 1);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      selectFile(current + 1);
+    } else if (e.key === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      e.preventDefault();
+      deleteSelected();
+    } else if ((e.key === "=" || e.key === "+") && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      setZoom(nearestStep(zoom, 1), { preserveCenter: true });
+    } else if (e.key === "-" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      setZoom(nearestStep(zoom, -1), { preserveCenter: true });
+    } else if (e.key === "0" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      $("btnZoomFit").click();
+    } else if (e.key === "1" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      setZoom(1, { preserveCenter: true });
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space" || e.key === " ") {
+      spaceDown = false;
+      wrap.classList.remove("spacepan");
+    }
+    if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") altDown = false;
+  });
+
+  window.addEventListener("blur", () => {
+    spaceDown = false;
+    altDown = false;
+    wrap.classList.remove("spacepan");
+  });
+
+  window.addEventListener("resize", () => {
+    if (!cur() || !cur().naturalW || stage.style.display === "none") return;
+    const rect = wrap.getBoundingClientRect();
+    applyZoom(captureAnchor(rect.left + wrap.clientWidth / 2, rect.top + wrap.clientHeight / 2));
+  });
+
+  async function ensureSizes() {
+    await Promise.all(files.map(async (f) => {
+      if (f.naturalW > 0 && f.naturalH > 0) return;
+      if (f.sizePromise) {
+        try { rememberSize(f, await f.sizePromise); } catch (err) { /* keep going */ }
+      }
+      if (f.naturalW > 0 && f.naturalH > 0) return;
+      rememberSize(f, await loadSize(f.url));
+    }));
+    renderFileList();
+    renderBoxes();
+  }
+
+  function exportPayload() {
+    return {
+      coord_system: "original_image_pixels",
+      format: coordMode.value,
+      images: files.map((f) => ({
+        image: f.name,
+        width: f.naturalW,
+        height: f.naturalH,
+        boxes: f.boxes.map(formatBox),
+      })),
+    };
+  }
+
+  function download(filename, text, mime) {
+    const blob = new Blob([text], { type: mime });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function readyPayload() {
+    if (!files.length) {
+      alert("还没有图片");
+      return null;
+    }
+    await ensureSizes();
+    const missing = files.filter((f) => !(f.naturalW > 0 && f.naturalH > 0));
+    if (missing.length) {
+      alert("有图片尺寸未能读取，未导出：\n" + missing.map((f) => f.name).join("\n"));
+      return null;
+    }
+    return exportPayload();
+  }
+
+  $("btnExport").onclick = () => {
+    readyPayload().then((payload) => {
+      if (!payload) return;
+      download("bboxes.json", JSON.stringify(payload, null, 2), "application/json");
+    }).catch(() => alert("导出失败"));
+  };
+
+  $("btnExportCsv").onclick = () => {
+    readyPayload().then((payload) => {
+      if (!payload) return;
+      const mode = payload.format;
+      const header = mode === "xywh"
+        ? "image,width,height,box_index,x,y,w,h"
+        : "image,width,height,box_index,x1,y1,x2,y2";
+      const rows = [header];
+      payload.images.forEach((f) => {
+        if (!f.boxes.length) {
+          rows.push([JSON.stringify(f.image), f.width, f.height, "", "", "", "", ""].join(","));
+          return;
+        }
+        f.boxes.forEach((fmt, i) => {
+          if (mode === "xywh") {
+            rows.push([JSON.stringify(f.image), f.width, f.height, i + 1, fmt.x, fmt.y, fmt.w, fmt.h].join(","));
+          } else {
+            rows.push([JSON.stringify(f.image), f.width, f.height, i + 1, fmt.x1, fmt.y1, fmt.x2, fmt.y2].join(","));
+          }
+        });
+      });
+      download("bboxes.csv", rows.join("\n"), "text/csv");
+    }).catch(() => alert("导出失败"));
+  };
+})();
+</script>
+</body>
+</html>
